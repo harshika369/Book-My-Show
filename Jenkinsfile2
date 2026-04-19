@@ -26,15 +26,13 @@ pipeline {
         }
 
         // ---------------- SONAR ----------------
-        stage('SonarQube Analysis') {
-            steps {
-                withSonarQubeEnv("${SONARQUBE}") {
-                    sh '''
-                    cd bookmyshow-app
-                    sonar-scanner \
-                      -Dsonar.projectName=BMS \
-                      -Dsonar.projectKey=bms-app \
-                      -Dsonar.sources=.
+        withSonarQubeEnv('sonar-server') {
+          sh '''
+           cd bookmyshow-app
+             ${tool 'sonar-scanner'}/bin/sonar-scanner \
+              -Dsonar.projectName=BMS \
+               -Dsonar.projectKey=bms-app \
+                 -Dsonar.sources=.
                     '''
                 }
             }
