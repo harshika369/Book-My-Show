@@ -8,7 +8,7 @@ pipeline {
     }
 
     tools {
-        nodejs 'nodejs23'   // make sure this name matches Jenkins config
+        nodejs 'node23'   // make sure this name matches Jenkins config
     }
 
     stages {
