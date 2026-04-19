@@ -1,0 +1,108 @@
+pipeline {
+    agent any
+
+    tools {
+        nodejs 'node23'
+    }
+
+    environment {
+        IMAGE_NAME = 'harshikaaa/bookmyshow'
+    }
+
+    stages {
+
+        stage('Clean Workspace') {
+            steps {
+                cleanWs()
+            }
+        }
+
+        stage('Checkout Code') {
+            steps {
+                git branch: 'main', url: 'https://github.com/harshika369/Book-My-Show.git'
+            }
+        }
+
+        stage('Verify Files') {
+            steps {
+                sh '''
+                echo "Root folder:"
+                ls -la
+                echo "App folder:"
+                ls -la bookmyshow-app
+                '''
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                dir('bookmyshow-app') {
+                    sh '''
+                    if [ -f package.json ]; then
+                        rm -rf node_modules package-lock.json
+                        npm install
+                    else
+                        echo "package.json not found!"
+                        exit 1
+                    fi
+                    '''
+                }
+            }
+        }
+
+        stage('Trivy FS Scan') {
+            steps {
+                sh 'trivy fs . > trivyfs.txt'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh '''
+                docker build -t $IMAGE_NAME:latest -f bookmyshow-app/Dockerfile bookmyshow-app
+                '''
+            }
+        }
+
+        stage('Trivy Image Scan') {
+            steps {
+                sh 'trivy image $IMAGE_NAME:latest > trivyimage.txt'
+            }
+        }
+
+        stage('Docker Push') {
+            steps {
+                script {
+                    withDockerRegistry(credentialsId: 'docker-creds', toolName: 'docker') {
+                        sh '''
+                        docker push $IMAGE_NAME:latest
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Deploy Container') {
+            steps {
+                sh '''
+                docker stop bms || true
+                docker rm bms || true
+
+                docker run -d \
+                  --name bms \
+                  -p 3000:3000 \
+                  --restart=always \
+                  $IMAGE_NAME:latest
+
+                docker ps -a
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: 'trivyfs.txt,trivyimage.txt', fingerprint: true
+        }
+    }
+}
