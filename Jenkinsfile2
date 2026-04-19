@@ -2,14 +2,13 @@ pipeline {
     agent any
 
     environment {
-        SCANNER_HOME = tool 'sonar-scanner'
         DOCKER_IMAGE = 'harshikaaa/bookmyshow:latest'
-        EKS_CLUSTER_NAME = 'bms-cluster'
-        AWS_REGION = 'us-east-1'
+        DOCKER_CREDENTIALS = 'docker-creds'
+        SONARQUBE = 'sonar-server'
     }
 
-    triggers {
-        githubPush()
+    tools {
+        nodejs 'nodejs'   // make sure this name matches Jenkins config
     }
 
     stages {
@@ -26,15 +25,16 @@ pipeline {
             }
         }
 
+        // ---------------- SONAR ----------------
         stage('SonarQube Analysis') {
             steps {
-                withSonarQubeEnv('sonar-server') {
+                withSonarQubeEnv("${SONARQUBE}") {
                     sh '''
                     cd bookmyshow-app
-                    $SCANNER_HOME/bin/sonar-scanner \
-                        -Dsonar.projectName=BMS \
-                        -Dsonar.projectKey=bms-app \
-                        -Dsonar.sources=.
+                    sonar-scanner \
+                      -Dsonar.projectName=BMS \
+                      -Dsonar.projectKey=bms-app \
+                      -Dsonar.sources=.
                     '''
                 }
             }
@@ -43,11 +43,12 @@ pipeline {
         stage('Quality Gate') {
             steps {
                 script {
-                    waitForQualityGate abortPipeline: false
+                    waitForQualityGate abortPipeline: true
                 }
             }
         }
 
+        // ---------------- BUILD ----------------
         stage('Install Dependencies') {
             steps {
                 sh '''
@@ -58,61 +59,69 @@ pipeline {
             }
         }
 
+        // ---------------- SECURITY ----------------
         stage('OWASP Dependency Check') {
             steps {
-                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DP-Check'
+                dependencyCheck additionalArguments: '--scan .', odcInstallation: 'DP-Check'
                 dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
             }
         }
 
-        stage('Trivy Scan') {
+        stage('Trivy FS Scan') {
             steps {
-                sh 'trivy fs . > trivyfs.txt'
+                sh 'trivy fs .'
             }
         }
 
-        stage('Docker Build & Push') {
+        // ---------------- DOCKER ----------------
+        stage('Build Docker Image') {
+            steps {
+                sh 'docker build -t $DOCKER_IMAGE -f bookmyshow-app/Dockerfile bookmyshow-app'
+            }
+        }
+
+        stage('Trivy Image Scan') {
+            steps {
+                sh 'trivy image $DOCKER_IMAGE'
+            }
+        }
+
+        stage('Push Docker Image') {
             steps {
                 script {
-                    withDockerRegistry(credentialsId: 'docker-creds', toolName: 'docker') {
-                        sh '''
-                        docker build -t $DOCKER_IMAGE -f bookmyshow-app/Dockerfile bookmyshow-app
-                        docker push $DOCKER_IMAGE
-                        '''
+                    docker.withRegistry('', DOCKER_CREDENTIALS) {
+                        sh 'docker push $DOCKER_IMAGE'
                     }
                 }
             }
         }
 
-        stage('Deploy to EKS') {
+        // ---------------- KUBERNETES ----------------
+        stage('Deploy to Kubernetes') {
             steps {
-                withAWS(credentials: 'aws-creds', region: "${AWS_REGION}") {
-                    sh '''
-                    aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION
-
-                    kubectl apply -f deployment.yml
-                    kubectl apply -f service.yml
-
-                    kubectl get pods
-                    kubectl get svc
-                    '''
-                }
+                sh '''
+                kubectl apply -f deployment.yml
+                kubectl apply -f service.yml
+                '''
             }
         }
     }
 
+    // ---------------- POST ----------------
     post {
-        always {
-            emailext(
-                subject: "Build ${currentBuild.result}: ${env.JOB_NAME}",
-                body: """
-Build Status: ${currentBuild.result}
-Job: ${env.JOB_NAME}
-Build Number: ${env.BUILD_NUMBER}
-URL: ${env.BUILD_URL}
-                """,
-                to: 'harshikabaliyanhs@gmail.com',
-                attachmentsPattern: 'trivyfs.txt'
+        success {
+            emailext (
+                subject: "SUCCESS: Build Passed",
+                body: "Pipeline executed successfully 🚀",
+                to: "harshikabaliyanhs@gmail.com"
+            )
+        }
+
+        failure {
+            emailext (
+                subject: "FAILURE: Build Failed",
+                body: "Pipeline failed ❌. Please check Jenkins logs.",
+                to: "harshikabaliyanhs@gmail.com"
             )
         }
     }
