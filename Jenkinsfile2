@@ -7,7 +7,7 @@ pipeline {
     }
 
     tools {
-        nodejs 'node23'
+        nodejs 'node18'   // make sure this EXACT name exists in Jenkins tools
     }
 
     stages {
@@ -56,8 +56,13 @@ pipeline {
             steps {
                 dir('bookmyshow-app') {
                     sh '''
+                    echo "Node version:"
+                    node -v
+                    npm -v
+
                     rm -rf node_modules package-lock.json
-                    npm install
+                    npm cache clean --force
+                    npm install --legacy-peer-deps
                     '''
                 }
             }
@@ -65,14 +70,16 @@ pipeline {
 
         stage('OWASP Dependency Check') {
             steps {
-                dependencyCheck additionalArguments: '--scan .', odcInstallation: 'DP-Check'
-                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+                dir('bookmyshow-app') {
+                    dependencyCheck additionalArguments: '--scan . --format XML', odcInstallation: 'DP-Check'
+                    dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+                }
             }
         }
 
         stage('Trivy FS Scan') {
             steps {
-                sh 'trivy fs .'
+                sh 'trivy fs bookmyshow-app'
             }
         }
 
