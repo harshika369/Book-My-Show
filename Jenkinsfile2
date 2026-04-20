@@ -31,6 +31,7 @@ pipeline {
                 script {
                     def scannerHome = tool 'sonar-scanner'
                     withSonarQubeEnv('sonar-server') {
+                      withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
                         sh """
                         cd bookmyshow-app
                         ${scannerHome}/bin/sonar-scanner \
