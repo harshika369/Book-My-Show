@@ -57,11 +57,17 @@ pipeline {
             steps {
                 dir('bookmyshow-app') {
                     sh '''
+                    echo "Node version:"
                     node -v
                     npm -v
-                    rm -rf node_modules package-lock.json
-                    npm cache clean --force
-                    npm install --legacy-peer-deps
+
+                    # Fix npm network issues
+                    npm config set fetch-retries 5
+                    npm config set fetch-retry-mintimeout 20000
+                    npm config set fetch-retry-maxtimeout 120000
+
+                    # DO NOT delete package-lock.json
+                    npm install --legacy-peer-deps --no-audit --no-fund
                     '''
                 }
             }
@@ -70,8 +76,6 @@ pipeline {
         stage('OWASP Dependency Check') {
             steps {
                 dir('bookmyshow-app') {
-                    sh 'mkdir -p /var/lib/jenkins/owasp-data'
-
                     dependencyCheck additionalArguments: """
                         --scan .
                         --format XML
@@ -115,13 +119,10 @@ pipeline {
 
         stage('Deploy to Kubernetes') {
             steps {
-                dir('bookmyshow-app') {
-                    sh '''
-                    kubectl apply -f deployment.yml
-                    kubectl apply -f service.yml
-                    kubectl get pods
-                    '''
-                }
+                sh '''
+                kubectl apply -f deployment.yml
+                kubectl apply -f service.yml
+                '''
             }
         }
     }
