@@ -56,8 +56,8 @@ pipeline {
             steps {
                 dir('bookmyshow-app') {
                     sh '''
-                    rm -rf node_modules
-                    npm ci
+                    rm -rf node_modules package-lock.json
+                    npm install
                     '''
                 }
             }
@@ -65,18 +65,14 @@ pipeline {
 
         stage('OWASP Dependency Check') {
             steps {
-                dir('bookmyshow-app') {
-                    dependencyCheck additionalArguments: '--scan . --format XML', odcInstallation: 'DP-Check'
-                    dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
-                }
+                dependencyCheck additionalArguments: '--scan .', odcInstallation: 'DP-Check'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
             }
         }
 
         stage('Trivy FS Scan') {
             steps {
-                dir('bookmyshow-app') {
-                    sh 'trivy fs .'
-                }
+                sh 'trivy fs .'
             }
         }
 
