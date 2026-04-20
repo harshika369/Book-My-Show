@@ -61,22 +61,20 @@ pipeline {
                     node -v
                     npm -v
 
-                    # Network stability fixes
+                    # Fix npm network issues
                     npm config set registry https://registry.npmjs.org/
                     npm config set fetch-retries 10
                     npm config set fetch-retry-factor 2
                     npm config set fetch-retry-mintimeout 20000
                     npm config set fetch-retry-maxtimeout 120000
-                    npm config set network-timeout 600000
-                    npm config set maxsockets 1
+                    npm config set fetch-timeout 600000
 
-                    # Clean only node_modules (KEEP lock file)
-                    rm -rf node_modules
+                    # Clean install
+                    rm -rf node_modules package-lock.json
+                    npm cache clean --force
 
-                    # Retry install (critical)
-                    npm install --legacy-peer-deps --no-audit --no-fund || \
-                    npm install --legacy-peer-deps --no-audit --no-fund || \
-                    npm install --legacy-peer-deps --no-audit --no-fund
+                    # Retry logic (VERY IMPORTANT)
+                    npm install --legacy-peer-deps || npm install --legacy-peer-deps || npm install --legacy-peer-deps
                     '''
                 }
             }
