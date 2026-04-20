@@ -7,19 +7,18 @@ pipeline {
     }
 
     tools {
-        nodejs 'node23'   // must match Jenkins global tool config
+        nodejs 'node23'               // must match Jenkins config
+        // DO NOT add sonar here (we use tool step instead)
     }
 
     stages {
 
-        // ---------------- CLEAN ----------------
         stage('Clean Workspace') {
             steps {
                 cleanWs()
             }
         }
 
-        // ---------------- CHECKOUT ----------------
         stage('Checkout Code') {
             steps {
                 git branch: 'main', url: 'https://github.com/harshika369/Book-My-Show.git'
@@ -30,20 +29,23 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('sonar-server') {
-                    sh '''
-                    cd bookmyshow-app
-                    sonar-scanner \
-                      -Dsonar.projectName=BMS \
-                      -Dsonar.projectKey=bms-app \
-                      -Dsonar.sources=.
-                    '''
+                    script {
+                        def scannerHome = tool 'sonar-scanner'
+                        sh """
+                        cd bookmyshow-app
+                        ${scannerHome}/bin/sonar-scanner \
+                          -Dsonar.projectName=BMS \
+                          -Dsonar.projectKey=bms-app \
+                          -Dsonar.sources=.
+                        """
+                    }
                 }
             }
         }
 
         stage('Quality Gate') {
             steps {
-                script {
+                timeout(time: 2, unit: 'MINUTES') {
                     waitForQualityGate abortPipeline: true
                 }
             }
@@ -70,7 +72,7 @@ pipeline {
 
         stage('Trivy FS Scan') {
             steps {
-                sh 'trivy fs --exit-code 0 .'
+                sh 'trivy fs .'
             }
         }
 
@@ -83,14 +85,14 @@ pipeline {
 
         stage('Trivy Image Scan') {
             steps {
-                sh 'trivy image --exit-code 0 $DOCKER_IMAGE'
+                sh 'trivy image $DOCKER_IMAGE'
             }
         }
 
         stage('Push Docker Image') {
             steps {
                 script {
-                    docker.withRegistry('https://index.docker.io/v1/', DOCKER_CREDENTIALS) {
+                    docker.withRegistry('', DOCKER_CREDENTIALS) {
                         sh 'docker push $DOCKER_IMAGE'
                     }
                 }
@@ -108,7 +110,6 @@ pipeline {
         }
     }
 
-    // ---------------- POST ----------------
     post {
         success {
             emailext (
