@@ -1,135 +1,146 @@
 pipeline {
-    agent any
+agent any
 
-    environment {
-        DOCKER_IMAGE = 'harshikaaa/bookmyshow:latest'
-        DOCKER_CREDENTIALS = 'docker-creds'
+```
+environment {
+    DOCKER_IMAGE = 'harshikaaa/bookmyshow:latest'
+    DOCKER_CREDENTIALS = 'docker-creds'
+    NVD_API_KEY = credentials('nvd-api-key')   // ✅ ADD THIS
+}
+
+tools {
+    nodejs 'node18'
+}
+
+stages {
+
+    stage('Clean Workspace') {
+        steps {
+            cleanWs()
+        }
     }
 
-    tools {
-        nodejs 'node18'   // make sure this EXACT name exists in Jenkins tools
+    stage('Checkout Code') {
+        steps {
+            git branch: 'main', url: 'https://github.com/harshika369/Book-My-Show.git'
+        }
     }
 
-    stages {
-
-        stage('Clean Workspace') {
-            steps {
-                cleanWs()
-            }
-        }
-
-        stage('Checkout Code') {
-            steps {
-                git branch: 'main', url: 'https://github.com/harshika369/Book-My-Show.git'
-            }
-        }
-
-        stage('SonarQube Analysis') {
-            steps {
-                dir('bookmyshow-app') {
-                    script {
-                        def scannerHome = tool 'sonar-scanner'
-                        withSonarQubeEnv('sonar-server') {
-                            withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
-                                sh """
-                                ${scannerHome}/bin/sonar-scanner \
-                                -Dsonar.projectName=BMS \
-                                -Dsonar.projectKey=bms-app \
-                                -Dsonar.sources=. \
-                                -Dsonar.host.url=$SONAR_HOST_URL \
-                                -Dsonar.token=$SONAR_TOKEN
-                                """
-                            }
+    stage('SonarQube Analysis') {
+        steps {
+            dir('bookmyshow-app') {
+                script {
+                    def scannerHome = tool 'sonar-scanner'
+                    withSonarQubeEnv('sonar-server') {
+                        withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                            sh """
+                            ${scannerHome}/bin/sonar-scanner \
+                            -Dsonar.projectName=BMS \
+                            -Dsonar.projectKey=bms-app \
+                            -Dsonar.sources=. \
+                            -Dsonar.host.url=$SONAR_HOST_URL \
+                            -Dsonar.token=$SONAR_TOKEN
+                            """
                         }
                     }
                 }
             }
         }
+    }
 
-        stage('Quality Gate') {
-            steps {
-                waitForQualityGate abortPipeline: true
-            }
+    stage('Quality Gate') {
+        steps {
+            waitForQualityGate abortPipeline: true
         }
+    }
 
-        stage('Install Dependencies') {
-            steps {
-                dir('bookmyshow-app') {
-                    sh '''
-                    echo "Node version:"
-                    node -v
-                    npm -v
-
-                    rm -rf node_modules package-lock.json
-                    npm cache clean --force
-                    npm install --legacy-peer-deps
-                    '''
-                }
-            }
-        }
-
-        stage('OWASP Dependency Check') {
-            steps {
-                dir('bookmyshow-app') {
-                    dependencyCheck additionalArguments: '--scan . --format XML', odcInstallation: 'DP-Check'
-                    dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
-                }
-            }
-        }
-
-        stage('Trivy FS Scan') {
-            steps {
-                sh 'trivy fs bookmyshow-app'
-            }
-        }
-
-        stage('Build Docker Image') {
-            steps {
-                sh 'docker build -t $DOCKER_IMAGE -f bookmyshow-app/Dockerfile bookmyshow-app'
-            }
-        }
-
-        stage('Trivy Image Scan') {
-            steps {
-                sh 'trivy image $DOCKER_IMAGE'
-            }
-        }
-
-        stage('Push Docker Image') {
-            steps {
-                script {
-                    docker.withRegistry('', DOCKER_CREDENTIALS) {
-                        sh 'docker push $DOCKER_IMAGE'
-                    }
-                }
-            }
-        }
-
-        stage('Deploy to Kubernetes') {
-            steps {
+    stage('Install Dependencies') {
+        steps {
+            dir('bookmyshow-app') {
                 sh '''
-                kubectl apply -f deployment.yml
-                kubectl apply -f service.yml
+                echo "Node version:"
+                node -v
+                npm -v
+
+                rm -rf node_modules package-lock.json
+                npm cache clean --force
+                npm install --legacy-peer-deps
                 '''
             }
         }
     }
 
-    post {
-        success {
-            emailext (
-                subject: "SUCCESS: Build Passed",
-                body: "Pipeline executed successfully 🚀",
-                to: "harshikabaliyanhs@gmail.com"
-            )
-        }
-
-        failure {
-            emailext (
-                subject: "FAILURE: Build Failed",
-                body: "Pipeline failed ❌. Please check Jenkins logs.",
-                to: "harshikabaliyanhs@gmail.com"
-            )
+    // ✅ FIXED OWASP STAGE
+    stage('OWASP Dependency Check') {
+        steps {
+            dir('bookmyshow-app') {
+                dependencyCheck additionalArguments: """
+                    --scan .
+                    --format XML
+                    --format HTML
+                    --nvdApiKey ${NVD_API_KEY}
+                """, odcInstallation: 'DP-Check'
+                
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
         }
     }
+
+    stage('Trivy FS Scan') {
+        steps {
+            sh 'trivy fs bookmyshow-app'
+        }
+    }
+
+    stage('Build Docker Image') {
+        steps {
+            sh 'docker build -t $DOCKER_IMAGE -f bookmyshow-app/Dockerfile bookmyshow-app'
+        }
+    }
+
+    stage('Trivy Image Scan') {
+        steps {
+            sh 'trivy image $DOCKER_IMAGE'
+        }
+    }
+
+    stage('Push Docker Image') {
+        steps {
+            script {
+                docker.withRegistry('', DOCKER_CREDENTIALS) {
+                    sh 'docker push $DOCKER_IMAGE'
+                }
+            }
+        }
+    }
+
+    stage('Deploy to Kubernetes') {
+        steps {
+            sh '''
+            kubectl apply -f deployment.yml
+            kubectl apply -f service.yml
+            '''
+        }
+    }
+}
+
+post {
+    success {
+        emailext (
+            subject: "SUCCESS: Build Passed",
+            body: "Pipeline executed successfully 🚀",
+            to: "harshikabaliyanhs@gmail.com"
+        )
+    }
+
+    failure {
+        emailext (
+            subject: "FAILURE: Build Failed",
+            body: "Pipeline failed ❌. Please check Jenkins logs.",
+            to: "harshikabaliyanhs@gmail.com"
+        )
+    }
+}
+```
+
 }
