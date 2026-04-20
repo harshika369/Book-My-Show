@@ -1,135 +1,142 @@
 pipeline {
-    agent any
+agent any
 
-    environment {
-        DOCKER_IMAGE = 'harshikaaa/bookmyshow:latest'
-        DOCKER_CREDENTIALS = 'docker-creds'
+```
+environment {
+    DOCKER_IMAGE = 'harshikaaa/bookmyshow:latest'
+    DOCKER_CREDENTIALS = 'docker-creds'
+}
+
+tools {
+    nodejs 'node23'
+}
+
+stages {
+
+    stage('Clean Workspace') {
+        steps {
+            cleanWs()
+        }
     }
 
-    tools {
-        nodejs 'node23'
+    stage('Checkout Code') {
+        steps {
+            git branch: 'main', url: 'https://github.com/harshika369/Book-My-Show.git'
+        }
     }
 
-    stages {
+    // ---------------- SONAR ----------------
+    stage('SonarQube Analysis') {
+        steps {
+            dir('bookmyshow-app') {
+                script {
+                    def scannerHome = tool 'sonar-scanner'
 
-        stage('Clean Workspace') {
-            steps {
-                cleanWs()
-            }
-        }
-
-        stage('Checkout Code') {
-            steps {
-                git branch: 'main', url: 'https://github.com/harshika369/Book-My-Show.git'
-            }
-        }
-
-        // ---------------- SONAR ----------------
-        stage('SonarQube Analysis') {
-            steps {
-                dir('bookmyshow-app') {
                     withSonarQubeEnv('sonar-server') {
                         withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
-                            sh '''
-                            sonar-scanner \
+                            sh """
+                            ${scannerHome}/bin/sonar-scanner \
                             -Dsonar.projectName=BMS \
                             -Dsonar.projectKey=bms-app \
                             -Dsonar.sources=. \
                             -Dsonar.host.url=$SONAR_HOST_URL \
                             -Dsonar.token=$SONAR_TOKEN
-                            '''
+                            """
                         }
                     }
                 }
             }
         }
+    }
 
-        stage('Quality Gate') {
-            steps {
-                waitForQualityGate abortPipeline: true
-            }
+    stage('Quality Gate') {
+        steps {
+            waitForQualityGate abortPipeline: true
         }
+    }
 
-        // ---------------- BUILD ----------------
-        stage('Install Dependencies') {
-            steps {
-                dir('bookmyshow-app') {
-                    sh '''
-                    rm -rf node_modules
-                    npm ci
-                    '''
-                }
-            }
-        }
-
-        // ---------------- SECURITY ----------------
-        stage('OWASP Dependency Check') {
-            steps {
-                dir('bookmyshow-app') {
-                    dependencyCheck additionalArguments: '--scan . --format XML', odcInstallation: 'DP-Check'
-                    dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
-                }
-            }
-        }
-
-        stage('Trivy FS Scan') {
-            steps {
-                dir('bookmyshow-app') {
-                    sh 'trivy fs .'
-                }
-            }
-        }
-
-        // ---------------- DOCKER ----------------
-        stage('Build Docker Image') {
-            steps {
-                sh 'docker build -t $DOCKER_IMAGE -f bookmyshow-app/Dockerfile bookmyshow-app'
-            }
-        }
-
-        stage('Trivy Image Scan') {
-            steps {
-                sh 'trivy image $DOCKER_IMAGE'
-            }
-        }
-
-        stage('Push Docker Image') {
-            steps {
-                script {
-                    docker.withRegistry('', DOCKER_CREDENTIALS) {
-                        sh 'docker push $DOCKER_IMAGE'
-                    }
-                }
-            }
-        }
-
-        // ---------------- KUBERNETES ----------------
-        stage('Deploy to Kubernetes') {
-            steps {
+    // ---------------- BUILD ----------------
+    stage('Install Dependencies') {
+        steps {
+            dir('bookmyshow-app') {
                 sh '''
-                kubectl apply -f deployment.yml
-                kubectl apply -f service.yml
+                rm -rf node_modules
+                npm ci
                 '''
             }
         }
     }
 
-    // ---------------- POST ----------------
-    post {
-        success {
-            emailext (
-                subject: "SUCCESS: Build Passed",
-                body: "Pipeline executed successfully 🚀",
-                to: "harshikabaliyanhs@gmail.com"
-            )
-        }
-
-        failure {
-            emailext (
-                subject: "FAILURE: Build Failed",
-                body: "Pipeline failed ❌. Please check Jenkins logs.",
-                to: "harshikabaliyanhs@gmail.com"
-            )
+    // ---------------- SECURITY ----------------
+    stage('OWASP Dependency Check') {
+        steps {
+            dir('bookmyshow-app') {
+                dependencyCheck additionalArguments: '--scan . --format XML', odcInstallation: 'DP-Check'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
         }
     }
+
+    stage('Trivy FS Scan') {
+        steps {
+            dir('bookmyshow-app') {
+                sh 'trivy fs .'
+            }
+        }
+    }
+
+    // ---------------- DOCKER ----------------
+    stage('Build Docker Image') {
+        steps {
+            sh 'docker build -t $DOCKER_IMAGE -f bookmyshow-app/Dockerfile bookmyshow-app'
+        }
+    }
+
+    stage('Trivy Image Scan') {
+        steps {
+            sh 'trivy image $DOCKER_IMAGE'
+        }
+    }
+
+    stage('Push Docker Image') {
+        steps {
+            script {
+                docker.withRegistry('', DOCKER_CREDENTIALS) {
+                    sh 'docker push $DOCKER_IMAGE'
+                }
+            }
+        }
+    }
+
+    // ---------------- KUBERNETES ----------------
+    stage('Deploy to Kubernetes') {
+        steps {
+            sh '''
+            kubectl apply -f deployment.yml
+            kubectl apply -f service.yml
+            '''
+        }
+    }
+}
+
+// ---------------- POST ----------------
+post {
+    success {
+        emailext (
+            subject: "SUCCESS: Build Passed",
+            body: "Pipeline executed successfully 🚀",
+            to: "harshikabaliyanhs@gmail.com"
+        )
+    }
+
+    failure {
+        emailext (
+            subject: "FAILURE: Build Failed",
+            body: "Pipeline failed ❌. Please check Jenkins logs.",
+            to: "harshikabaliyanhs@gmail.com"
+        )
+    }
+}
+```
+
 }
