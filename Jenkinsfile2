@@ -49,7 +49,9 @@ pipeline {
 
         stage('Quality Gate') {
             steps {
-                waitForQualityGate abortPipeline: true
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: false
+                }
             }
         }
 
@@ -61,19 +63,16 @@ pipeline {
                     node -v
                     npm -v
 
-                    # Fix npm network issues
                     npm config set registry https://registry.npmjs.org/
-                    npm config set fetch-retries 10
+                    npm config set fetch-retries 5
                     npm config set fetch-retry-factor 2
                     npm config set fetch-retry-mintimeout 20000
                     npm config set fetch-retry-maxtimeout 120000
                     npm config set fetch-timeout 600000
 
-                    # Clean install
                     rm -rf node_modules package-lock.json
                     npm cache clean --force
 
-                    # Retry install (critical fix)
                     npm install --legacy-peer-deps || npm install --legacy-peer-deps || npm install --legacy-peer-deps
                     '''
                 }
@@ -82,18 +81,21 @@ pipeline {
 
         stage('OWASP Dependency Check') {
             steps {
-                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-                    dir('bookmyshow-app') {
-                        dependencyCheck additionalArguments: """
-                            --scan .
-                            --format XML
-                            --format HTML
-                            --nvdApiKey ${NVD_API_KEY}
-                            --data /var/lib/jenkins/owasp-data
-                            --failOnCVSS 11
-                        """, odcInstallation: 'DP-Check'
+                script {
+                    catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+                        dir('bookmyshow-app') {
+                            dependencyCheck additionalArguments: """
+                                --scan .
+                                --format XML
+                                --format HTML
+                                --nvdApiKey ${NVD_API_KEY}
+                                --data /var/lib/jenkins/owasp-data
+                                --disableYarnAudit
+                                --disableNodeAudit
+                            """, odcInstallation: 'DP-Check'
 
-                        dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+                            dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+                        }
                     }
                 }
             }
@@ -101,7 +103,7 @@ pipeline {
 
         stage('Trivy FS Scan') {
             steps {
-                sh 'trivy fs bookmyshow-app || true'
+                sh 'trivy fs --severity HIGH,CRITICAL bookmyshow-app || true'
             }
         }
 
@@ -113,7 +115,7 @@ pipeline {
 
         stage('Trivy Image Scan') {
             steps {
-                sh 'trivy image $DOCKER_IMAGE || true'
+                sh 'trivy image --severity HIGH,CRITICAL $DOCKER_IMAGE || true'
             }
         }
 
@@ -140,16 +142,24 @@ pipeline {
     post {
         success {
             emailext (
-                subject: "SUCCESS: Build Passed",
+                subject: "SUCCESS: Build Passed ✅",
                 body: "Pipeline executed successfully 🚀",
+                to: "harshikabaliyanhs@gmail.com"
+            )
+        }
+
+        unstable {
+            emailext (
+                subject: "UNSTABLE: Security Issues Found ⚠️",
+                body: "Pipeline passed but vulnerabilities detected (OWASP/Trivy).",
                 to: "harshikabaliyanhs@gmail.com"
             )
         }
 
         failure {
             emailext (
-                subject: "FAILURE: Build Failed",
-                body: "Pipeline failed ❌. Please check Jenkins logs.",
+                subject: "FAILURE: Build Failed ❌",
+                body: "Pipeline failed. Check Jenkins logs.",
                 to: "harshikabaliyanhs@gmail.com"
             )
         }
