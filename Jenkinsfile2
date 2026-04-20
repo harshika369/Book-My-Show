@@ -34,7 +34,7 @@ pipeline {
                         withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
                             sh """
                             cd bookmyshow-app
-                            ${scannerHome}/bin/sonar-scanner \
+                            /var/lib/jenkins/tools/hudson.plugins.sonar.SonarRunnerInstallation/sonar-scanner/bin/sonar-scanner \
                             -Dsonar.projectName=BMS \
                             -Dsonar.projectKey=bms-app \
                             -Dsonar.sources=. \
