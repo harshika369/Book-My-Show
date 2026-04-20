@@ -4,7 +4,6 @@ pipeline {
     environment {
         DOCKER_IMAGE = 'harshikaaa/bookmyshow:latest'
         DOCKER_CREDENTIALS = 'docker-creds'
-        SONARQUBE = 'sonar-server'
     }
 
     tools {
@@ -30,17 +29,19 @@ pipeline {
             steps {
                 script {
                     def scannerHome = tool 'sonar-scanner'
+
                     withSonarQubeEnv('sonar-server') {
-                      withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
-                        sh """
-                        cd bookmyshow-app
-                        ${scannerHome}/bin/sonar-scanner \
-                          -Dsonar.projectName=BMS \
-                          -Dsonar.projectKey=bms-app \
-                          -Dsonar.sources=.
-                          -Dsonar.host.url=$SONAR_HOST_URL \
-                          -Dsonar.login=$SONAR_TOKEN
-                        """
+                        withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                            sh """
+                            cd bookmyshow-app
+                            ${scannerHome}/bin/sonar-scanner \
+                            -Dsonar.projectName=BMS \
+                            -Dsonar.projectKey=bms-app \
+                            -Dsonar.sources=. \
+                            -Dsonar.host.url=$SONAR_HOST_URL \
+                            -Dsonar.login=$SONAR_TOKEN
+                            """
+                        }
                     }
                 }
             }
